@@ -521,13 +521,14 @@ resume:
 
 void main(void)
 {
-  // GPIO: P3.2 push-pull output, others quasi-bidirectional
+  // GPIO: P3.2 quasi-bidirectional (HiZ) initially; push-pull set after TX pin is finalized
 #ifdef DEBUG
   P3M1 = 0x00;
-  P3M0 = 0x06;  // P3.1 push-pull (TXD for debug), P3.2 push-pull (TXen)
+  P3M0 = 0x02;  // P3.1 push-pull (TXD for debug); P3.2 quasi-bidirectional for now
+  P3M0 |= 0x04; // P3.2 push-pull (TXen) - set after P3.1 push-pull confirmed
 #else
-  P3M1 = 0x02;  // P3.1 high-Z input (externally pulled up)
-  P3M0 = 0x04;  // P3.2 push-pull (TXen only)
+  P3M1 = 0x02;  // P3.1 high-Z input
+  P3M0 = 0x00;  // P3.2 quasi-bidirectional; push-pull set after TX HiZ confirmed (below)
 #endif
   P5M1 = 0x00;
   P5M0 = 0x00;  // P5.4, P5.5 quasi-bidirectional
@@ -535,7 +536,11 @@ void main(void)
 
   // Pull-up on unused pins: P3.1, P3.3, P5.4, P5.5
   P_SW2 |= 0x80;  // enable extended SFR access
-  P3PU = 0x0A;     // P3.1, P3.3 pull-up
+#ifdef DEBUG
+  P3PU = 0x0A;     // P3.1 (TXD), P3.3 pull-up
+#else
+  P3PU = 0x08;     // P3.3 pull-up only (P3.1 input, no pull-up)
+#endif
   P5PU = 0x30;     // P5.4, P5.5 pull-up
   P_SW2 &= ~0x80;
 
@@ -562,6 +567,14 @@ void main(void)
   TH1 = 0xFE;
   TL1 = 0xE0;      // reload = 65248 for 9600bps  (4分周, Timer2 と同じ値)
   TR1 = 1;
+
+#ifndef DEBUG
+  // P3.1 HiZ re-assert after UART init: P_SW1 routes UART TX here, but
+  // STC8G GPIO high-Z disables the output driver, preventing TX from driving the pin
+  P3M1 |= 0x02;
+  P3M0 &= ~0x02;
+  P3M0 |= 0x04; // P3.2 push-pull (TXen) - set after TX HiZ confirmed
+#endif
 
   // Load saved baud rate from EEPROM (overrides default if valid)
   eeprom_load_baud();
